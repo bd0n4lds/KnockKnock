@@ -29,22 +29,20 @@ args = parser.parse_args()
 if not args.runTeams and not args.runOneDrive:
     print("[!] You must select one enumeration module, Teams or OneDrive... Exiting...")
     sys.exit()
-    
+
 if args.runTeams and args.teamsToken == '':
     print("[!] Teams Bearer Token required for Teams enumeration, Exiting...")
     sys.exit()
-    
+
 if args.teamsLegacy and args.outputfile == '':
     print("[!] Teams Legacy Output requires the output file option (-o). Exiting...")
     sys.exit()
 
-inputNames = []
 nameList = []
 validNames = []
 legacyNames = []
 
-for name in args.inputList.readlines():
-    inputNames.append(name)
+inputNames = list(args.inputList.readlines())
 
 def OneDriveEnumerator():
     tenantData = f"""<?xml version="1.0" encoding="utf-8"?>
@@ -82,34 +80,36 @@ def OneDriveEnumerator():
     except Exception as e:
         print("[!] Error retrieving tenant for target, Exiting...")
         if args.verboseMode:
-            print("[V] " + str(e))
+            print(f"[V] {str(e)}")
         sys.exit()
 
     if args.verboseMode:
-        print("[V] Using target tenant %s" % targetTenant)
+        print(f"[V] Using target tenant {targetTenant}")
 
     for potentialUser in nameList:
         try:
-            testURL = "https://" + targetTenant + "-my.sharepoint.com/personal/" + str(potentialUser.replace(".","_")) + "_" + str(args.targetDomain.replace(".","_")) + "/_layouts/15/onedrive.aspx"
+            testURL = (
+                f"https://{targetTenant}-my.sharepoint.com/personal/"
+                + str(potentialUser.replace(".", "_"))
+                + "_"
+                + str(args.targetDomain.replace(".", "_"))
+                + "/_layouts/15/onedrive.aspx"
+            )
             if args.verboseMode:
-                print("[V] Testing: " + str(testURL))
+                print(f"[V] Testing: {str(testURL)}")
             userRequest = requests.get(testURL, verify=False)
-            if userRequest.status_code in [200, 401, 403, 302]:
-                print("[+] " + str(str(potentialUser) + "@" + str(args.targetDomain)))
+            if userRequest.status_code in {200, 401, 403, 302}:
+                print(f'[+] {str(f"{str(potentialUser)}@{str(args.targetDomain)}")}')
                 validNames.append(str(potentialUser))
-            else:
-                if args.verboseMode:
-                    print("[-] " + str(str(potentialUser) + "@" + str(args.targetDomain)))
-                pass
-
+            elif args.verboseMode:
+                print(f'[-] {str(f"{str(potentialUser)}@{str(args.targetDomain)}")}')
         except Exception as e:
             if args.verboseMode:
-                print("[V] " + str(e))
-            pass
+                print(f"[V] {str(e)}")
 
 def teamsEnum(potentialUserNameTeams):       
     if args.verboseMode:
-        print("[V] Testing user %s" % potentialUserNameTeams)
+        print(f"[V] Testing user {potentialUserNameTeams}")
 
     URL_TEAMS = "https://teams.microsoft.com/api/mt/emea/beta/users/"
     CLIENT_VERSION = "27/1.0.0.2021011237"
@@ -125,42 +125,38 @@ def teamsEnum(potentialUserNameTeams):
 
     initHeaders = {
         "Host": "teams.microsoft.com",
-        "Authorization": "Bearer " + str(theToken),
-        "X-Ms-Client-Version": str(CLIENT_VERSION),
+        "Authorization": f"Bearer {theToken}",
+        "X-Ms-Client-Version": CLIENT_VERSION,
     }
 
     initRequest = requests.get(URL_TEAMS + str(potentialUserNameTeams) + "/externalsearchv3?includeTFLUsers=true", headers=initHeaders)
     if initRequest.status_code == 403:
-        print("[+] %s" % potentialUserNameTeams)
+        print(f"[+] {potentialUserNameTeams}")
         validNames.append(str(potentialUserNameTeams.split("@")[0]))
 
     elif initRequest.status_code == 404:
         print("[!] Error with username")
 
     elif initRequest.status_code == 200:
-        statusLevel = json.loads(initRequest.text)
-        if statusLevel:
-            print("[+] %s -- Legacy Skype Detected" % potentialUserNameTeams)
+        if statusLevel := json.loads(initRequest.text):
+            print(f"[+] {potentialUserNameTeams} -- Legacy Skype Detected")
             validNames.append(str(potentialUserNameTeams.split("@")[0]))
             legacyNames.append(str(potentialUserNameTeams.split("@")[0]))
             if args.verboseMode:
                 print(json.dumps(statusLevel, indent=2))
-        elif not statusLevel:
-            if args.verboseMode:
-                print("[-] %s" % potentialUserNameTeams)
+        elif args.verboseMode:
+            print(f"[-] {potentialUserNameTeams}")
 
     elif initRequest.status_code == 401:
         print("[!] Error with Teams Auth Token... \n\tShutting down threads and Exiting")
         sys.exit()
 
 def main():
-    global nameList    
+    global nameList
     for name in inputNames:
         if "@" in name:
             name = name.split("@")[0]
-            nameList.append(name.strip())
-        else:
-            nameList.append(name.strip())            
+        nameList.append(name.strip())
     nameList = list(dict.fromkeys(nameList))
 
     if args.runOneDrive:
@@ -168,8 +164,8 @@ def main():
             print("[V] Running OneDrive Enumeration")
         OneDriveEnumerator()
 
-    if args.runOneDrive and args.runTeams:
-        nameList = [i for i in nameList if i not in validNames]
+        if args.runTeams:
+            nameList = [i for i in nameList if i not in validNames]
 
     if args.runTeams:
         if args.verboseMode:
@@ -178,7 +174,7 @@ def main():
         threads = []
         max_threads = args.maxThreads
         for potentialUserNameTeams in nameList:
-            teamsEnumUser = str(potentialUserNameTeams.strip()) + str("@") + str(args.targetDomain)
+            teamsEnumUser = f"{str(potentialUserNameTeams.strip())}@{str(args.targetDomain)}"
             while threading.active_count() >= max_threads + 1:
                 pass
 
@@ -194,19 +190,15 @@ def main():
             overwriteOutputFile = True
             if Path.exists(Path(args.outputfile)):
                 overwriteOutFileChoice = input("[!] Output File exists, overwrite? [Y/n] ")
-                if overwriteOutFileChoice == "y" or "Y" or "":
-                    overwriteOutputFile = True
-                    Path(args.outputfile).unlink(missing_ok=True)
-                else:
-                    overwriteOutputFile = False
-
+                overwriteOutputFile = True
+                Path(args.outputfile).unlink(missing_ok=True)
             if overwriteOutputFile:
                 if args.verboseMode:
                     print("[V] Running deduplication and writing names to file")
                 validNamesUnique = list(dict.fromkeys(validNames))
                 with open(args.outputfile, 'w') as outfile:
                     for item in validNamesUnique:
-                        outfile.write(item + "@" + args.targetDomain + "\n")
+                        outfile.write(f"{item}@{args.targetDomain}" + "\n")
                 outfile.close()
             else:
                 print("[-] Not overwriting output file")
@@ -214,24 +206,20 @@ def main():
     if args.teamsLegacy:
         if legacyNames:
             if args.outputfile != '':
-                legacyOutFile = "Legacy_" + str(args.outputfile)
+                legacyOutFile = f"Legacy_{str(args.outputfile)}"
                 legacyOverwriteFile = True
 
                 if Path.exists(Path(legacyOutFile)):
                     legOverwriteChoice = input("[!] Legacy Output File exists, overwrite? [Y/n] ")
-                    if legOverwriteChoice == "y" or "Y" or "":
-                        legacyOverwriteFile = True
-                        Path(legacyOutFile).unlink(missing_ok=True)
-                    else:
-                        legacyOverwriteFile = False
-
+                    legacyOverwriteFile = True
+                    Path(legacyOutFile).unlink(missing_ok=True)
                 if legacyOverwriteFile:
                     if args.verboseMode:
                         print("[V] Found %i Legacy Skype Users, creating file with names" % len(legacyNames))
                     legacyNamesUniq = list(dict.fromkeys(legacyNames))
                     with open(legacyOutFile, "w") as legOut:
                         for legName in legacyNamesUniq:
-                            legOut.write(legName + "@" + args.targetDomain + "\n")
+                            legOut.write(f"{legName}@{args.targetDomain}" + "\n")
                     legOut.close()
                 else:
                     print("[-] Not overwriting legacy skype users file")
